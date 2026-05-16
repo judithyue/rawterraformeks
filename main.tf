@@ -49,6 +49,10 @@ resource "aws_internet_gateway" "i_gateway" {
 resource "aws_eip" "elastic_ip" {
   count      = var.networking.nat_gateways ? length(var.networking.public_subnets) : 0
   depends_on = [aws_internet_gateway.i_gateway]
+
+  tags = merge(var.common_tags, {
+    Name = "${var.naming_prefix}-eip-${count.index}"
+  })
 }
 
 resource "aws_nat_gateway" "nats" {
@@ -60,6 +64,10 @@ resource "aws_nat_gateway" "nats" {
 
 resource "aws_route_table" "public_table" {
   vpc_id = aws_vpc.custom_vpc.id
+
+  tags = merge(var.common_tags, {
+    Name = "${var.naming_prefix}-public-route-table"
+  })
 }
 
 resource "aws_route" "public_internet_access" {
@@ -77,6 +85,10 @@ resource "aws_route_table_association" "public_assoc" {
 resource "aws_route_table" "private_tables" {
   count  = length(var.networking.private_subnets)
   vpc_id = aws_vpc.custom_vpc.id
+
+  tags = merge(var.common_tags, {
+    Name = "${var.naming_prefix}-private-route-table-${count.index}"
+  })
 }
 
 resource "aws_route" "private_nat_access" {
@@ -101,6 +113,10 @@ resource "aws_security_group" "sec_groups" {
   name        = "${var.naming_prefix}-${each.value.name}"
   description = each.value.description
   vpc_id      = aws_vpc.custom_vpc.id
+
+  tags = merge(var.common_tags, {
+    Name = "${var.naming_prefix}-${each.value.name}-sg"
+  })
 
   dynamic "ingress" {
     for_each = each.value.ingress
@@ -135,6 +151,10 @@ resource "aws_iam_role" "EKSClusterRole" {
     Version   = "2012-10-17"
     Statement = [{ Action = "sts:AssumeRole", Effect = "Allow", Principal = { Service = "eks.amazonaws.com" } }]
   })
+
+  tags = merge(var.common_tags, {
+    Name = "${var.naming_prefix}-EKSClusterRole"
+  })
 }
 
 resource "aws_iam_role_policy_attachment" "AmazonEKSClusterPolicy" {
@@ -147,6 +167,10 @@ resource "aws_iam_role" "NodeGroupRole" {
   assume_role_policy = jsonencode({
     Version   = "2012-10-17"
     Statement = [{ Action = "sts:AssumeRole", Effect = "Allow", Principal = { Service = "ec2.amazonaws.com" } }]
+  })
+
+  tags = merge(var.common_tags, {
+    Name = "${var.naming_prefix}-EKSNodeGroupRole"
   })
 }
 
@@ -169,6 +193,10 @@ resource "aws_eks_cluster" "eks-cluster" {
   role_arn = aws_iam_role.EKSClusterRole.arn
   version  = var.cluster_config.version
 
+  tags = merge(var.common_tags, {
+    Name = var.cluster_config.name
+  })
+
   vpc_config {
     # DIRECT REFERENCE to your Subnets and Sec Groups
     subnet_ids         = flatten([aws_subnet.public_subnets[*].id, aws_subnet.private_subnets[*].id])
@@ -184,6 +212,10 @@ resource "aws_eks_node_group" "node-ec2" {
   node_group_name = "${var.naming_prefix}-${each.value.name}"
   node_role_arn   = aws_iam_role.NodeGroupRole.arn
   subnet_ids      = aws_subnet.private_subnets[*].id
+
+  tags = merge(var.common_tags, {
+    Name = "${var.naming_prefix}-${each.value.name}-nodegroup"
+  })
 
   scaling_config {
     desired_size = each.value.scaling_config.desired_size
@@ -207,6 +239,10 @@ resource "aws_iam_openid_connect_provider" "eks_oidc_provider" {
   url             = aws_eks_cluster.eks-cluster.identity[0].oidc[0].issuer
   client_id_list  = ["sts.amazonaws.com"]
   thumbprint_list = ["9e99a48a9960b14926bb7f3b02e22da2b0ab7280"]
+
+  tags = merge(var.common_tags, {
+    Name = "${var.naming_prefix}-eks-oidc-provider"
+  })
 }
 
 resource "aws_eks_addon" "addons" {
@@ -216,4 +252,21 @@ resource "aws_eks_addon" "addons" {
   resolve_conflicts_on_create = "OVERWRITE"
 
   depends_on = [aws_eks_node_group.node-ec2]
+}
+
+################################################################################
+# 7. ECR
+################################################################################
+resource "aws_ecr_repo" "ecr" {
+  repo_name = var.ecr_config.repo_name
+  image_tag_mutability = var.ecr_config.image_tag_mutability
+  force_delete = var.ecr_config.force_delete
+
+image_scanning_configuration {
+    scan_on_push = var.scan_on_push
+  }
+
+  tags = merge(var.common_tags, {
+    Name = "${var.naming_prefix}-ecr-repo"
+  })
 }

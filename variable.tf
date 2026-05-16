@@ -14,6 +14,15 @@ variable "cluster_config" {
   })
 }
 
+variable "ecr_config" {
+  type = object({
+    repo_name = string
+    image_tag_mutability = string
+    force_delete = bool
+    scan_on_push = bool
+  })
+}
+
 variable "common_tags" {
   type = map(string)
 }
