@@ -22,6 +22,10 @@ variable "ecr_config" {
     scan_on_push = bool
   })
 }
+variable "scan_on_push" {
+  type = bool
+  default = true
+}
 
 variable "common_tags" {
   type = map(string)

@@ -1,0 +1,100 @@
+name: Terraform Bootstrap
+
+# This workflow provisions the Terraform backend used by terraform-environments.yml.
+# It creates the S3 bucket and DynamoDB table for remote state and locks before dev/prod runs.
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Run plan or apply"
+        required: true
+        type: choice
+        options:
+          - plan
+          - apply
+  push:
+    branches:
+      - main
+    paths:
+      - 'bootstrap/**'
+      - '.github/workflows/terraform-bootstrap.yml'
+
+env:
+  AWS_REGION: ap-southeast-1
+
+jobs:
+  bootstrap-plan:
+    name: Bootstrap Plan
+    runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.action == 'plan' || github.event.inputs.action == 'apply'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: '1.5.7'
+
+      - name: Terraform fmt
+        working-directory: bootstrap
+        run: terraform fmt -check -recursive
+
+      - name: Terraform init
+        working-directory: bootstrap
+        run: terraform init
+
+      - name: Terraform validate
+        working-directory: bootstrap
+        run: terraform validate
+
+      - name: Terraform plan
+        working-directory: bootstrap
+        run: terraform plan -out=tfplan
+
+      - name: Save plan artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bootstrap-tfplan
+          path: bootstrap/tfplan
+
+  bootstrap-apply:
+    name: Bootstrap Apply
+    needs: bootstrap-plan
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply'
+    environment: bootstrap
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: '1.5.7'
+
+      - name: Download plan artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: bootstrap-tfplan
+          path: bootstrap
+
+      - name: Terraform init
+        working-directory: bootstrap
+        run: terraform init
+
+      - name: Terraform apply
+        working-directory: bootstrap
+        run: terraform apply -auto-approve tfplan

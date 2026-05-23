@@ -1,0 +1,176 @@
+name: Terraform Environments
+
+# Prerequisite: run the bootstrap workflow first to provision the Terraform backend resources.
+# This workflow assumes the S3 state bucket and DynamoDB lock table already exist.
+# bootstrap workflow file: .github/workflows/terraform-bootstrap.yml
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - dev
+      - prod
+      - main
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
+      action:
+        description: "Run plan or apply"
+        required: true
+        type: choice
+        options:
+          - plan
+          - apply
+
+env:
+  TF_STATE_BUCKET: bq-mightycapstone-terraform-state
+  TF_LOCK_TABLE: bq-mightycapstone-terraform-locks
+  AWS_REGION: ap-southeast-1
+
+jobs:
+  security-scans:
+    name: Security Scans
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: '1.5.7'
+
+      - name: Terraform fmt (check)
+        run: terraform fmt -check -recursive
+
+      - name: Terraform init
+        run: terraform init -backend=false
+
+      - name: Terraform validate
+        run: terraform validate
+
+      - name: Run tflint
+        uses: terraform-linters/tflint-action@v0.12.0
+
+      - name: Run tfsec
+        uses: aquasecurity/tfsec-action@v1
+
+      - name: Run Checkov (bridgecrew)
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: .
+          framework: terraform
+
+      - name: Install conftest (OPA-based policy testing)
+        run: |
+          CONFTST_VER="v0.32.0"
+          curl -sL "https://github.com/open-policy-agent/conftest/releases/download/${CONFTST_VER}/conftest_${CONFTST_VER}_Linux_x86_64.tar.gz" -o /tmp/conftest.tar.gz
+          tar -xzf /tmp/conftest.tar.gz -C /tmp
+          sudo mv /tmp/conftest /usr/local/bin/conftest
+
+      - name: Run conftest (OPA policies in ./policies)
+        run: |
+          if [ -d ./policies ]; then
+            conftest test -p ./policies .
+          else
+            echo "No ./policies directory found — skipping conftest"
+          fi
+
+  terraform-plan:
+    name: Terraform Plan
+    needs: security-scans
+    runs-on: ubuntu-latest
+    if: (github.event_name == 'pull_request' && github.base_ref == 'main') || (github.event_name == 'push' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/prod')) || github.event_name == 'workflow_dispatch'
+    env:
+      TF_ENV: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: '1.5.7'
+
+      - name: Validate environment
+        run: |
+          if [ "${TF_ENV}" != "dev" ] && [ "${TF_ENV}" != "prod" ]; then
+            echo "Unsupported environment: ${TF_ENV}"
+            exit 1
+          fi
+
+      - name: Terraform fmt
+        run: terraform fmt -check -recursive
+
+      - name: Terraform init
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ env.TF_STATE_BUCKET }}" \
+            -backend-config="key=state/${TF_ENV}/terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="dynamodb_table=${{ env.TF_LOCK_TABLE }}" \
+            -reconfigure
+
+      - name: Terraform validate
+        run: terraform validate
+
+      - name: Terraform plan
+        run: terraform plan -var-file="env/${TF_ENV}.tfvars" -out=tfplan
+
+      - name: Save plan artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-${{ env.TF_ENV }}
+          path: tfplan
+
+  terraform-apply:
+    name: Terraform Apply
+    needs: terraform-plan
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply')
+    environment: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || github.ref_name }}
+    env:
+      TF_ENV: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: '1.5.7'
+
+      - name: Download plan artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan-${{ env.TF_ENV }}
+
+      - name: Terraform init
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ env.TF_STATE_BUCKET }}" \
+            -backend-config="key=state/${TF_ENV}/terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="dynamodb_table=${{ env.TF_LOCK_TABLE }}" \
+            -reconfigure
+
+      - name: Terraform apply
+        run: terraform apply -auto-approve tfplan
