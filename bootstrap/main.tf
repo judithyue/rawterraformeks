@@ -14,6 +14,11 @@ provider "aws" {
 }
 
 resource "aws_s3_bucket" "remote_state" {
+  # checkov:skip=CKV2_AWS_62:Testing environment - notifications not needed
+  # checkov:skip=CKV2_AWS_61:Testing environment - lifecycle policy not needed
+  # checkov:skip=CKV_AWS_18:Testing environment - access logging not needed
+  # checkov:skip=CKV_AWS_144:Testing environment - cross-region replication not needed
+  # checkov:skip=CKV_AWS_145:Testing environment - SSE-S3 encryption is sufficient for lab
   bucket = var.backend_bucket
 
   tags = merge(var.common_tags, {
@@ -49,6 +54,7 @@ resource "aws_s3_bucket_public_access_block" "remote_state_block" {
 }
 
 resource "aws_dynamodb_table" "terraform_locks" {
+  # checkov:skip=CKV_AWS_119:Testing environment - AWS managed key is fine for locking
   name         = var.lock_table_name
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "LockID"
