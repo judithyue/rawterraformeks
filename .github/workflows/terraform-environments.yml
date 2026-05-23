@@ -55,11 +55,17 @@ jobs:
       - name: Terraform validate
         run: terraform validate
 
-      - name: Run tflint
-        uses: terraform-linters/tflint-action@v0.12.0
+      - name: Setup TFLint
+        uses: terraform-linters/setup-tflint@v6
+        with:
+          tflint_version: v0.52.0
+          cache: true
+
+      - name: Run TFLint
+        run: tflint
 
       - name: Run tfsec
-        uses: aquasecurity/tfsec-action@v1
+        uses: aquasecurity/tfsec-action@v1.0.3
 
       - name: Run Checkov (bridgecrew)
         uses: bridgecrewio/checkov-action@master
