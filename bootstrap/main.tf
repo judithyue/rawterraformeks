@@ -14,11 +14,6 @@ provider "aws" {
 }
 
 resource "aws_s3_bucket" "remote_state" {
-  # checkov:skip=CKV2_AWS_62:Testing environment - notifications not needed
-  # checkov:skip=CKV2_AWS_61:Testing environment - lifecycle policy not needed
-  # checkov:skip=CKV_AWS_18:Testing environment - access logging not needed
-  # checkov:skip=CKV_AWS_144:Testing environment - cross-region replication not needed
-  # checkov:skip=CKV_AWS_145:Testing environment - SSE-S3 encryption is sufficient for lab
   bucket = var.backend_bucket
 
   tags = merge(var.common_tags, {
@@ -62,8 +57,6 @@ resource "aws_dynamodb_table" "terraform_locks" {
     name = "LockID"
     type = "S"
   }
-
-  # This native block fixes CKV_AWS_119 without needing a skip comment
   server_side_encryption {
     enabled = true
   }
