@@ -51,8 +51,8 @@ resource "aws_internet_gateway" "i_gateway" {
   tags   = merge(var.common_tags, { Name = "${var.naming_prefix}-igw" })
 }
 
+# checkov:skip=CKV2_AWS_19:EIP assigned dynamically to NAT gateway on apply
 resource "aws_eip" "elastic_ip" {
-  # checkov:skip=CKV2_AWS_19:EIP assigned dynamically to NAT gateway on apply
   count      = var.networking.nat_gateways ? length(var.networking.public_subnets) : 0
   depends_on = [aws_internet_gateway.i_gateway]
 
