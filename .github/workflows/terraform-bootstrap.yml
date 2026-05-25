@@ -1,7 +1,5 @@
 name: Terraform Bootstrap
 
-# This workflow provisions the Terraform backend used by terraform-environments.yml.
-# It creates the S3 bucket and DynamoDB table for remote state and locks before dev/prod runs.
 on:
   workflow_dispatch:
     inputs:
@@ -41,6 +39,13 @@ jobs:
         uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: '1.5.7'
+
+      - name: Download Previous Bootstrap State (If Exists)
+        uses: actions/download-artifact@v4
+        continue-on-error: true  # Crucial: This will fail on the very first run because no state exists yet. We ignore that error.
+        with:
+          name: bootstrap-state
+          path: bootstrap
 
       - name: Terraform fmt
         working-directory: bootstrap
@@ -85,6 +90,13 @@ jobs:
         with:
           terraform_version: '1.5.7'
 
+      - name: Download Previous Bootstrap State (To perform apply against)
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: bootstrap-state
+          path: bootstrap
+
       - name: Download plan artifact
         uses: actions/download-artifact@v4
         with:
@@ -98,3 +110,11 @@ jobs:
       - name: Terraform apply
         working-directory: bootstrap
         run: terraform apply -auto-approve tfplan
+
+      # CRITICAL STEP: Save the state file back to GitHub Actions Storage
+      - name: Upload New Bootstrap State
+        uses: actions/upload-artifact@v4
+        with:
+          name: bootstrap-state
+          path: bootstrap/terraform.tfstate
+          retention-days: 360  # Keeps your state alive for your capstone timeline
