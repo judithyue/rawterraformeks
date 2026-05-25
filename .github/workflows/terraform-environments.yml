@@ -11,9 +11,6 @@ on:
     branches:
       - dev
       - main  #<--- 'main' is now officially your production branch
-    paths-ignore:
-      - 'bootstrap/**'
-      - '.github/workflows/terraform-bootstrap.yml'
   workflow_dispatch:
     inputs:
       environment:

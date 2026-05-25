@@ -2,7 +2,6 @@
 # 1. NETWORKING (VPC & SUBNETS)
 ################################################################################
 
-# tfsec:ignore:aws-ec2-require-vpc-flow-logs-for-all-vpcs
 resource "aws_vpc" "custom_vpc" {
   # checkov:skip=CKV2_AWS_11:VPC flow logs disabled to control lab costs
   # checkov:skip=CKV2_AWS_12:Default SG rule skipped for testing
@@ -13,9 +12,7 @@ resource "aws_vpc" "custom_vpc" {
   })
 }
 
-# tfsec:ignore:aws-ec2-no-public-ip-subnet
 resource "aws_subnet" "public_subnets" {
-  # checkov:skip=CKV_AWS_130:Public subnets intentionally mapping public IPs for ingress
   count                   = length(var.networking.public_subnets)
   vpc_id                  = aws_vpc.custom_vpc.id
   cidr_block              = var.networking.public_subnets[count.index]
@@ -50,8 +47,6 @@ resource "aws_internet_gateway" "i_gateway" {
   vpc_id = aws_vpc.custom_vpc.id
   tags   = merge(var.common_tags, { Name = "${var.naming_prefix}-igw" })
 }
-
-# checkov:skip=CKV2_AWS_19:EIP assigned dynamically to NAT gateway on apply
 resource "aws_eip" "elastic_ip" {
   count      = var.networking.nat_gateways ? length(var.networking.public_subnets) : 0
   depends_on = [aws_internet_gateway.i_gateway]
@@ -193,16 +188,7 @@ resource "aws_iam_role_policy_attachment" "node_policies" {
 ################################################################################
 # 5. EKS CLUSTER & NODE GROUPS
 ################################################################################
-
-# tfsec:ignore:aws-eks-no-public-cluster-access
-# tfsec:ignore:aws-eks-no-public-cluster-access-to-cidr
-# tfsec:ignore:aws-eks-encrypt-secrets
-# tfsec:ignore:aws-eks-enable-control-plane-logging
 resource "aws_eks_cluster" "eks-cluster" {
-  # checkov:skip=CKV_AWS_37:Control plane logging skipped for cost control
-  # checkov:skip=CKV_AWS_38:Public access restriction handled by SG limits
-  # checkov:skip=CKV_AWS_39:Public endpoint required for kubectl from home
-  # checkov:skip=CKV_AWS_58:Secrets encryption skipped for capstone scope
   name     = var.cluster_config.name
   role_arn = aws_iam_role.EKSClusterRole.arn
   version  = var.cluster_config.version
@@ -271,11 +257,7 @@ resource "aws_eks_addon" "addons" {
 ################################################################################
 # 7. ECR
 ################################################################################
-
-# tfsec:ignore:aws-ecr-enforce-immutable-repository
-# tfsec:ignore:aws-ecr-repository-customer-key
 resource "aws_ecr_repository" "ecr" {
-  # checkov:skip=CKV_AWS_136:AWS managed encryption key sufficient for project
   name                 = var.ecr_config.repo_name
   image_tag_mutability = var.ecr_config.image_tag_mutability
   force_delete         = var.ecr_config.force_delete
