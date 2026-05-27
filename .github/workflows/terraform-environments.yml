@@ -153,6 +153,7 @@ jobs:
     needs: terraform-plan
     runs-on: ubuntu-latest
     if: |
+      always() &&
       (needs.terraform-plan.result == 'success') &&
       github.event_name == 'push' || 
       (github.event_name == 'workflow_dispatch' && (github.event.inputs.action == 'apply' || github.event.inputs.action == 'destroy'))
