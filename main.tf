@@ -3,6 +3,8 @@
 ################################################################################
 
 resource "aws_vpc" "custom_vpc" {
+  # checkov:skip=CKV2_AWS_11:VPC flow logs disabled to control lab costs
+  # checkov:skip=CKV2_AWS_12:Default SG rule skipped for testing
   cidr_block = var.networking.cidr_block
 
   tags = merge(var.common_tags, {
@@ -45,7 +47,6 @@ resource "aws_internet_gateway" "i_gateway" {
   vpc_id = aws_vpc.custom_vpc.id
   tags   = merge(var.common_tags, { Name = "${var.naming_prefix}-igw" })
 }
-
 resource "aws_eip" "elastic_ip" {
   count      = var.networking.nat_gateways ? length(var.networking.public_subnets) : 0
   depends_on = [aws_internet_gateway.i_gateway]
@@ -187,7 +188,6 @@ resource "aws_iam_role_policy_attachment" "node_policies" {
 ################################################################################
 # 5. EKS CLUSTER & NODE GROUPS
 ################################################################################
-
 resource "aws_eks_cluster" "eks-cluster" {
   name     = var.cluster_config.name
   role_arn = aws_iam_role.EKSClusterRole.arn
@@ -257,12 +257,12 @@ resource "aws_eks_addon" "addons" {
 ################################################################################
 # 7. ECR
 ################################################################################
-resource "aws_ecr_repo" "ecr" {
-  repo_name = var.ecr_config.repo_name
+resource "aws_ecr_repository" "ecr" {
+  name                 = var.ecr_config.repo_name
   image_tag_mutability = var.ecr_config.image_tag_mutability
-  force_delete = var.ecr_config.force_delete
+  force_delete         = var.ecr_config.force_delete
 
-image_scanning_configuration {
+  image_scanning_configuration {
     scan_on_push = var.scan_on_push
   }
 

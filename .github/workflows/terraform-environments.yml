@@ -1,0 +1,202 @@
+name: Terraform Environments
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - dev
+      - main  # 'main' is the production branch
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: choice
+        options:
+          - dev
+          - main 
+      action:
+        description: "Run plan, apply or destroy"
+        required: true
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+
+jobs:
+  security-scans:
+    name: Security Scans
+    runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.action != 'destroy'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: '1.5.7'
+
+      - name: Terraform fmt (check)
+        run: terraform fmt -check -recursive
+
+      - name: Terraform init
+        run: terraform init -backend=false
+
+      - name: Terraform validate
+        run: terraform validate
+
+      - name: Setup TFLint
+        uses: terraform-linters/setup-tflint@v6
+        with:
+          tflint_version: v0.52.0
+          cache: true
+
+      - name: Run TFLint
+        run: tflint
+
+      - name: Run tfsec
+        uses: aquasecurity/tfsec-action@v1.0.3
+        with:
+          working_directory: .
+          additional_args: '--exclude aws-eks-no-public-cluster-access,aws-eks-no-public-cluster-access-to-cidr,aws-ec2-no-public-ip-subnet,aws-eks-encrypt-secrets,aws-ecr-enforce-immutable-repository,aws-eks-enable-control-plane-logging,aws-ec2-require-vpc-flow-logs-for-all-vpcs,aws-ecr-repository-customer-key'
+
+      - name: Run Checkov (bridgecrew)
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: .
+          framework: terraform
+          skip_check: CKV_AWS_18,CKV_AWS_28,CKV_AWS_37,CKV_AWS_38,CKV_AWS_39,CKV_AWS_58,CKV_AWS_119,CKV_AWS_130,CKV_AWS_136,CKV_AWS_144,CKV_AWS_145,CKV_AWS_157,CKV2_AWS_11,CKV2_AWS_12,CKV2_AWS_19,CKV2_AWS_61,CKV2_AWS_62
+
+  terraform-plan:
+    name: Terraform Plan / Destroy Plan
+    needs: security-scans
+    if: always() && (needs.security-scans.result == 'success' || needs.security-scans.result == 'skipped')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: '1.5.7'
+
+      - name: Resolve Environment Context
+        run: |
+          # 1. Evaluate clean text strings based on GitHub triggers
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            TARGET_ENV="main"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TARGET_ENV="${{ github.event.inputs.environment }}"
+          else
+            TARGET_ENV="${{ github.ref_name }}"
+          fi
+
+          # 2. Establish tfvars file suffix mappings
+          if [ "$TARGET_ENV" = "main" ]; then
+            SUFFIX="prod"
+          else
+            SUFFIX="dev"
+          fi
+
+          # 3. Save directly to execution context variables
+          echo "TF_ENV=$TARGET_ENV" >> $GITHUB_ENV
+          echo "TF_FILE_SUFFIX=$SUFFIX" >> $GITHUB_ENV
+
+      - name: Validate Environment Scope
+        run: |
+          if [ "${TF_ENV}" != "dev" ] && [ "${TF_ENV}" != "main" ]; then
+            echo "Unsupported branch/environment context: ${TF_ENV}"
+            exit 1
+          fi
+
+      - name: Terraform fmt
+        run: terraform fmt -check -recursive
+
+      - name: Terraform init
+        run: |
+          terraform init \
+            -backend-config="env/backend-${{ env.TF_FILE_SUFFIX }}.tfvars" \
+            -reconfigure
+
+      - name: Terraform validate
+        run: terraform validate
+
+      - name: Terraform plan (Deploy or Destroy)
+        run: |
+          if [ "${{ github.event.inputs.action }}" = "destroy" ]; then
+            terraform plan -destroy -var-file="env/${{ env.TF_FILE_SUFFIX }}.tfvars" -out=tfplan
+          else
+            terraform plan -var-file="env/${{ env.TF_FILE_SUFFIX }}.tfvars" -out=tfplan
+          fi
+
+      - name: Save plan artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-${{ env.TF_FILE_SUFFIX }}
+          path: tfplan
+
+  terraform-apply:
+    name: Terraform Apply / Destroy Execution
+    needs: terraform-plan
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'push' || 
+      (github.event_name == 'workflow_dispatch' && (github.event.inputs.action == 'apply' || github.event.inputs.action == 'destroy'))
+    environment: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.environment) || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: '1.5.7'
+
+      - name: Resolve Environment Context
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            TARGET_ENV="main"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TARGET_ENV="${{ github.event.inputs.environment }}"
+          else
+            TARGET_ENV="${{ github.ref_name }}"
+          fi
+
+          if [ "$TARGET_ENV" = "main" ]; then
+            SUFFIX="prod"
+          else
+            SUFFIX="dev"
+          fi
+
+          echo "TF_ENV=$TARGET_ENV" >> $GITHUB_ENV
+          echo "TF_FILE_SUFFIX=$SUFFIX" >> $GITHUB_ENV
+
+      - name: Download plan artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan-${{ env.TF_FILE_SUFFIX }}
+
+      - name: Terraform init
+        run: |
+          terraform init \
+            -backend-config="env/backend-${{ env.TF_FILE_SUFFIX }}.tfvars" \
+            -reconfigure
+
+      - name: Terraform apply (Deploy or Destroy)
+        run: terraform apply -auto-approve tfplan

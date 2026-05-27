@@ -18,7 +18,7 @@ output "nat_gateway_ips" {
   value       = aws_eip.elastic_ip[*].public_ip
 }
 
-# This output is the most important one for your Capstone demo!
+# 
 /*
 output "eks_connect_command" {
   description = "Command to configure kubectl to connect to the EKS cluster"

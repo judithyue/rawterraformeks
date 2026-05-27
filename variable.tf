@@ -16,11 +16,15 @@ variable "cluster_config" {
 
 variable "ecr_config" {
   type = object({
-    repo_name = string
+    repo_name            = string
     image_tag_mutability = string
-    force_delete = bool
-    scan_on_push = bool
+    force_delete         = bool
+    scan_on_push         = bool
   })
+}
+variable "scan_on_push" {
+  type    = bool
+  default = true
 }
 
 variable "common_tags" {
