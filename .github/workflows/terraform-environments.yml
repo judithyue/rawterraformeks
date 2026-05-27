@@ -75,11 +75,6 @@ jobs:
     needs: security-scans
     if: always() && (needs.security-scans.result == 'success' || needs.security-scans.result == 'skipped')
     runs-on: ubuntu-latest
-    env:
-      # If it's a PR targeting main, or a manual run targeting main, or a direct push to main -> use 'main'. Otherwise, default to 'dev'.
-      TF_ENV: ${{ (github.event_name == 'pull_request' && github.base_ref == 'main') || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'main') || github.ref_name == 'main' && 'main' || 'dev' }}
-      # If the context evaluates to 'main', use 'prod' file suffixes, otherwise use 'dev'
-      TF_FILE_SUFFIX: ${{ ((github.event_name == 'pull_request' && github.base_ref == 'main') || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'main') || github.ref_name == 'main') && 'prod' || 'dev' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -94,6 +89,28 @@ jobs:
         uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: '1.5.7'
+
+      - name: Resolve Environment Context
+        run: |
+          # 1. Evaluate clean text strings based on GitHub triggers
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            TARGET_ENV="main"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TARGET_ENV="${{ github.event.inputs.environment }}"
+          else
+            TARGET_ENV="${{ github.ref_name }}"
+          fi
+
+          # 2. Establish tfvars file suffix mappings
+          if [ "$TARGET_ENV" = "main" ]; then
+            SUFFIX="prod"
+          else
+            SUFFIX="dev"
+          fi
+
+          # 3. Save directly to execution context variables
+          echo "TF_ENV=$TARGET_ENV" >> $GITHUB_ENV
+          echo "TF_FILE_SUFFIX=$SUFFIX" >> $GITHUB_ENV
 
       - name: Validate Environment Scope
         run: |
@@ -135,10 +152,7 @@ jobs:
     if: |
       github.event_name == 'push' || 
       (github.event_name == 'workflow_dispatch' && (github.event.inputs.action == 'apply' || github.event.inputs.action == 'destroy'))
-    environment: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || github.ref_name }}
-    env:
-      TF_ENV: ${{ (github.event_name == 'pull_request' && github.base_ref == 'main') || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'main') || github.ref_name == 'main' && 'main' || 'dev' }}
-      TF_FILE_SUFFIX: ${{ ((github.event_name == 'pull_request' && github.base_ref == 'main') || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'main') || github.ref_name == 'main') && 'prod' || 'dev' }}
+    environment: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.environment) || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
 
@@ -153,6 +167,25 @@ jobs:
         uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: '1.5.7'
+
+      - name: Resolve Environment Context
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            TARGET_ENV="main"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TARGET_ENV="${{ github.event.inputs.environment }}"
+          else
+            TARGET_ENV="${{ github.ref_name }}"
+          fi
+
+          if [ "$TARGET_ENV" = "main" ]; then
+            SUFFIX="prod"
+          else
+            SUFFIX="dev"
+          fi
+
+          echo "TF_ENV=$TARGET_ENV" >> $GITHUB_ENV
+          echo "TF_FILE_SUFFIX=$SUFFIX" >> $GITHUB_ENV
 
       - name: Download plan artifact
         uses: actions/download-artifact@v4
