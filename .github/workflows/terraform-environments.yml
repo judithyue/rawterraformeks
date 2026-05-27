@@ -76,10 +76,10 @@ jobs:
     if: always() && (needs.security-scans.result == 'success' || needs.security-scans.result == 'skipped')
     runs-on: ubuntu-latest
     env:
-      # Evaluates base environment tracking string
-      TF_ENV: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || github.ref_name }}
-      # If TF_ENV is main, use 'prod' file suffixes, otherwise use 'dev'
-      TF_FILE_SUFFIX: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.environment || github.ref_name) == 'main' && 'prod' || 'dev' }}
+      # If it's a PR targeting main, or a manual run targeting main, or a direct push to main -> use 'main'. Otherwise, default to 'dev'.
+      TF_ENV: ${{ (github.event_name == 'pull_request' && github.base_ref == 'main') || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'main') || github.ref_name == 'main' && 'main' || 'dev' }}
+      # If the context evaluates to 'main', use 'prod' file suffixes, otherwise use 'dev'
+      TF_FILE_SUFFIX: ${{ ((github.event_name == 'pull_request' && github.base_ref == 'main') || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'main') || github.ref_name == 'main') && 'prod' || 'dev' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -137,8 +137,8 @@ jobs:
       (github.event_name == 'workflow_dispatch' && (github.event.inputs.action == 'apply' || github.event.inputs.action == 'destroy'))
     environment: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || github.ref_name }}
     env:
-      TF_ENV: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || github.ref_name }}
-      TF_FILE_SUFFIX: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.environment || github.ref_name) == 'main' && 'prod' || 'dev' }}
+      TF_ENV: ${{ (github.event_name == 'pull_request' && github.base_ref == 'main') || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'main') || github.ref_name == 'main' && 'main' || 'dev' }}
+      TF_FILE_SUFFIX: ${{ ((github.event_name == 'pull_request' && github.base_ref == 'main') || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'main') || github.ref_name == 'main') && 'prod' || 'dev' }}
     steps:
       - uses: actions/checkout@v4
 
