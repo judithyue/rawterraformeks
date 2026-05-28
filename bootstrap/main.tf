@@ -14,7 +14,8 @@ provider "aws" {
 }
 
 resource "aws_s3_bucket" "remote_state" {
-  bucket = var.backend_bucket
+  bucket        = var.backend_bucket
+  force_destroy = true
 
   tags = merge(var.common_tags, {
     Name = var.backend_bucket

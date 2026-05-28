@@ -3,14 +3,15 @@ name: Terraform Environments
 on:
   pull_request:
     branches:
-      - main
+      - dev   # Scans and generates plan blueprints when proposing changes to dev/ prod
+      - main  
   push:
     branches:
-      - dev
-      - main  # 'main' is the production branch
+      - dev   
+      - main   
     paths-ignore:
       - '.github/workflows/**'
-      - 'README.md'  # Ignore markdown files for push events
+      - 'README.md'
   workflow_dispatch:
     inputs:
       environment:
@@ -95,9 +96,9 @@ jobs:
 
       - name: Resolve Environment Context
         run: |
-          # 1. Evaluate clean text strings based on GitHub triggers
+          # 1. Evaluate clean text strings based on target destination branches
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            TARGET_ENV="main"
+            TARGET_ENV="${{ github.base_ref }}"
           elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             TARGET_ENV="${{ github.event.inputs.environment }}"
           else
@@ -155,9 +156,11 @@ jobs:
     if: |
       always() &&
       (needs.terraform-plan.result == 'success') &&
-      github.event_name == 'push' || 
-      (github.event_name == 'workflow_dispatch' && (github.event.inputs.action == 'apply' || github.event.inputs.action == 'destroy'))
-    environment: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.environment) || github.ref_name }}
+      (
+        github.event_name == 'push' || 
+        (github.event_name == 'workflow_dispatch' && (github.event.inputs.action == 'apply' || github.event.inputs.action == 'destroy'))
+      )
+    environment: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.environment) || (github.event_name == 'pull_request' && github.base_ref) || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
 
@@ -176,7 +179,7 @@ jobs:
       - name: Resolve Environment Context
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            TARGET_ENV="main"
+            TARGET_ENV="${{ github.base_ref }}"
           elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             TARGET_ENV="${{ github.event.inputs.environment }}"
           else

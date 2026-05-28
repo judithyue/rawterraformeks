@@ -8,7 +8,7 @@ resource "aws_vpc" "custom_vpc" {
   cidr_block = var.networking.cidr_block
 
   tags = merge(var.common_tags, {
-    Name = "${var.naming_prefix}-VPC"
+    Name = "${var.naming_prefix}-vpc"
   })
 }
 
