@@ -270,3 +270,5 @@ resource "aws_ecr_repository" "ecr" {
     Name = "${var.naming_prefix}-ecr-repo"
   })
 }
+
+# mock semver test 01
