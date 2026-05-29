@@ -3,14 +3,14 @@ name: Terraform Environments
 on:
   pull_request:
     branches:
-      - dev   # Scans and generates plan blueprints when proposing changes to dev/ prod
-      - main  
+      - dev
   push:
     branches:
-      - dev   
-      - main   
+      - dev   # Code pushes/merges to dev still run apply automatically
+    tags:
+      - 'v*.*.*'  # SEMVER TRIGGER: Matches any semantic version tag (e.g., v1.0.0, v2.1.4)
     paths-ignore:
-      - '.github/workflows/**'
+      #- '.github/workflows/**'
       - 'README.md'
   workflow_dispatch:
     inputs:
@@ -96,23 +96,24 @@ jobs:
 
       - name: Resolve Environment Context
         run: |
-          # 1. Evaluate clean text strings based on target destination branches
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
+          # 1. Check if this run is a manual main selection or an official version tag
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.environment }}" = "main" ]; then
+            TARGET_ENV="main"
+          elif echo "${{ github.ref }}" | grep -q "^refs/tags/v"; then
+            TARGET_ENV="main"
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
             TARGET_ENV="${{ github.base_ref }}"
-          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TARGET_ENV="${{ github.event.inputs.environment }}"
           else
             TARGET_ENV="${{ github.ref_name }}"
           fi
 
-          # 2. Establish tfvars file suffix mappings
+          # 2. Establish tfvars file suffix mappings (Tags point to production infrastructure)
           if [ "$TARGET_ENV" = "main" ]; then
             SUFFIX="prod"
           else
             SUFFIX="dev"
           fi
 
-          # 3. Save directly to execution context variables
           echo "TF_ENV=$TARGET_ENV" >> $GITHUB_ENV
           echo "TF_FILE_SUFFIX=$SUFFIX" >> $GITHUB_ENV
 
@@ -158,9 +159,10 @@ jobs:
       (needs.terraform-plan.result == 'success') &&
       (
         github.event_name == 'push' || 
+        startsWith(github.ref, 'refs/tags/v') ||
         (github.event_name == 'workflow_dispatch' && (github.event.inputs.action == 'apply' || github.event.inputs.action == 'destroy'))
       )
-    environment: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.environment) || (github.event_name == 'pull_request' && github.base_ref) || github.ref_name }}
+    environment: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.environment) || (github.event_name == 'pull_request' && github.base_ref) || (startsWith(github.ref, 'refs/tags/v') && 'main') || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
 
@@ -178,10 +180,12 @@ jobs:
 
       - name: Resolve Environment Context
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.environment }}" = "main" ]; then
+            TARGET_ENV="main"
+          elif echo "${{ github.ref }}" | grep -q "^refs/tags/v"; then
+            TARGET_ENV="main"
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
             TARGET_ENV="${{ github.base_ref }}"
-          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TARGET_ENV="${{ github.event.inputs.environment }}"
           else
             TARGET_ENV="${{ github.ref_name }}"
           fi
