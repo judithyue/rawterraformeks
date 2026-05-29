@@ -10,7 +10,7 @@ on:
     tags:
       - 'v*.*.*'  # SEMVER TRIGGER: Matches any semantic version tag (e.g., v1.0.0, v2.1.4)
     paths-ignore:
-      - '.github/workflows/**'
+      #- '.github/workflows/**'
       - 'README.md'
   workflow_dispatch:
     inputs:
